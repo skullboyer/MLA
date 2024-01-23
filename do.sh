@@ -19,7 +19,7 @@
 function help {
 cat <<EOF
 -*- help -*-
-usage: ./do.sh [generate] [make] [exe] [clean] [help]
+usage: ./do.sh [generate] [make] [exec] [clean] [help]
     [generate]: -g -G generate
 
 Example usage of the MLA mechanism
