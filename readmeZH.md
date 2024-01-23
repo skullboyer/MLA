@@ -9,7 +9,7 @@ MLA 即 Memory Leak Analyzer，是一个排查内存泄漏的分析器<br />
 >可以使用`./do.sh help`命令<br />
 ```bash
 -*- help -*-
-usage: ./do.sh [generate] [make] [exe] [clean] [help]
+usage: ./do.sh [generate] [make] [exec] [clean] [help]
     [generate]: -g -G generate
 
 Example usage of the MLA mechanism

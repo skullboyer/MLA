@@ -9,7 +9,7 @@ You can use the script `do.sh` provided to quickly use this code base<br />
 >You can use the `./do.sh help` command<br />
 ```bash
 -*- help -*-
-usage: ./do.sh [generate] [make] [exe] [clean] [help]
+usage: ./do.sh [generate] [make] [exec] [clean] [help]
     [generate]: -g -G generate
 
 Example usage of the MLA mechanism
