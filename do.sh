@@ -158,9 +158,38 @@ EOF
 
 function generate_log {
 cat >log.c <<EOF
+#include <stdio.h>
+#include <stdarg.h>
 #include "adapter.h"
 
 #define TAG    "LOG"
+#define OUTPUT    output
+
+FILE *logFile = NULL;
+
+int initLogFile()
+{
+    logFile = fopen("Log.log", "w+");
+    if (logFile == NULL) {
+        printf("Failed to open log file.\n");
+        return -1;
+    }
+    return 0;
+}
+
+int output(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+
+    if (logFile != NULL) {
+        vfprintf(logFile, format, args);
+        fflush(logFile);
+    }
+
+    va_end(args);
+    return 0;
+}
 
 int test1()
 {
@@ -176,7 +205,9 @@ int test()
 
 int main()
 {
+    initLogFile();
     LOGD("=== %s, %d", __func__, test());
+    fclose(logFile);
     return 0;
 }
 EOF
@@ -185,7 +216,8 @@ EOF
 function clean {
     [ -f a.out ] && rm a.out
     [ -f build.log ] && rm build.log
-    [ -f out.log ] && rm out.log
+    [ -f exec.log ] && rm exec.log
+    [ -f Log.log ] && rm Log.log
     [ -f sv_mla.c ] && rm sv_mla.c
     [ -f sv_mla.h ] && rm sv_mla.h
     [ -f self_verify.c ] && rm self_verify.c
@@ -193,8 +225,8 @@ function clean {
     [ -f log.c ] && rm log.c
     sed -i '/char buffer\[256\];/d' adapter.h
     sed -i '/sprintf(buffer, __VA_ARGS__);/d' adapter.h
-    sed -i '/printf(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
-    sed -i '/printf(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
+    sed -i '/OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
+    sed -i '/OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
     sed -i "s/OUTPUT(buffer);/OUTPUT(__VA_ARGS__);/" adapter.h
 }
 
@@ -213,16 +245,16 @@ function generate {
             [ $1 = 'LOG' ] && {
                 clean
                 generate_log
-                awk 'index($0, "level == V ? : OUTPUT(#level") {print "printf(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                [[ $2 = '--debug' ]] && awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 awk 'index($0, "level == V ? : OUTPUT(#level") {print "char buffer[256]; \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 awk 'index($0, "level == V ? : OUTPUT(#level") {print "sprintf(buffer, __VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
-                awk 'index($0, "level == V ? : OUTPUT(#level") {print "printf(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                [[ $2 = '--debug' ]] && awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 space_num=`awk 'index($0, "level == V ? : OUTPUT(#level") {match($0, /^ */); print RLENGTH}' adapter.h`
                 spaces=$(printf '%*s' $space_num ' ')
                 sed -i "s/char buffer\[256\];/${spaces}&/" adapter.h
                 sed -i "s/sprintf(buffer, __VA_ARGS__);/${spaces}&/" adapter.h
-                sed -i "s/printf(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%,/${spaces}&/" adapter.h
-                sed -i "s/printf(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&,/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%,/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&,/${spaces}&/" adapter.h
                 sed -i "s/OUTPUT(__VA_ARGS__);/OUTPUT(buffer);/" adapter.h
                 echo "Generate a file for analyzing the logging mechanism."
             } || echo "!!Please check input" && exit -1
@@ -233,7 +265,7 @@ function generate {
 function process {
     case ${user_arg[0]} in
         -g|-G|generate)
-            generate ${user_arg[1]}
+            generate ${user_arg[1]} ${user_arg[2]}
             ;;
         make)
             [[ ! -f self_verify.c && ! -f demo.c && ! -f log.c ]] && echo "!!Run the command './do.sh generate'" && exit -1
@@ -243,7 +275,7 @@ function process {
             ;;
         exec)
             [ ! -f a.out ] && echo "!!Run the command './do.sh make'" && exit -1
-            ./a.out |tee out.log
+            ./a.out |tee exec.log
             ;;
         clean)
             clean
