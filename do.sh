@@ -225,8 +225,10 @@ function clean {
     [ -f log.c ] && rm log.c
     sed -i '/char buffer\[256\];/d' adapter.h
     sed -i '/sprintf(buffer, __VA_ARGS__);/d' adapter.h
-    sed -i '/OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
-    sed -i '/OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
+    sed -i '/OUTPUT(\"%s, >>>, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
+    sed -i '/OUTPUT(\"###\\n\");/d' adapter.h
+    sed -i '/OUTPUT(\"@ %s\\n\", buffer);/d' adapter.h
+    sed -i '/OUTPUT(\"%s, <<<, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
     sed -i "s/OUTPUT(buffer);/OUTPUT(__VA_ARGS__);/" adapter.h
 }
 
@@ -245,16 +247,24 @@ function generate {
             [ $1 = 'LOG' ] && {
                 clean
                 generate_log
-                [[ $2 = '--debug' ]] && awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                [[ $2 = '--debug' ]] && {
+                    awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, >>>, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                    awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"###\\n\"); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                }
                 awk 'index($0, "level == V ? : OUTPUT(#level") {print "char buffer[256]; \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 awk 'index($0, "level == V ? : OUTPUT(#level") {print "sprintf(buffer, __VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
-                [[ $2 = '--debug' ]] && awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                [[ $2 = '--debug' ]] && {
+                    awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"@ %s\\n\", buffer); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                    awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, <<<, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                }
                 space_num=`awk 'index($0, "level == V ? : OUTPUT(#level") {match($0, /^ */); print RLENGTH}' adapter.h`
                 spaces=$(printf '%*s' $space_num ' ')
                 sed -i "s/char buffer\[256\];/${spaces}&/" adapter.h
                 sed -i "s/sprintf(buffer, __VA_ARGS__);/${spaces}&/" adapter.h
-                sed -i "s/OUTPUT(\"%s, %%%%%%%%%%%%%%%%%%%%%%%%,/${spaces}&/" adapter.h
-                sed -i "s/OUTPUT(\"%s, &&&&&&&&&&&&&&&&&&&&&&&&,/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"%s, >>>/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"###/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"@ %s/${spaces}&/" adapter.h
+                sed -i "s/OUTPUT(\"%s, <<</${spaces}&/" adapter.h
                 sed -i "s/OUTPUT(__VA_ARGS__);/OUTPUT(buffer);/" adapter.h
                 echo "Generate a file for analyzing the logging mechanism."
             } || echo "!!Please check input" && exit -1
