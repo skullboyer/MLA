@@ -13,7 +13,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "adapter.h"
 
 /* MLA内部使用的内存管理接口 */
 #define MLA_MALLOC(size)    malloc(size)

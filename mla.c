@@ -8,7 +8,7 @@
  * @copyright Copyright (c) 2023 skull
  *
  */
-#include "mla.h"
+#include "adapter.h"
 
 #define TAG    "MLA"
 #define MEM_ID_SIZE    (4)  // sizeof(Hash("file: line"))
@@ -76,19 +76,6 @@ static int8_t assert_abort(void)
 {
     LOGE("xxxxxxxxxxx");
     for(;;);
-}
-
-static unsigned int BKDRHash(char *str)
-{
-    unsigned int seed = 131;  // 31 131 1313 13131 131313 etc..
-    unsigned int hash = 0;
-
-    CHECK(str != NULL, 0);
-    while (*str) {
-        hash = hash * seed + (*str++);
-    }
-
-    return (hash & 0x7FFFFFFF);
 }
 
 #if 0
@@ -274,9 +261,9 @@ static int MlaFreeRecorder(char *file, char *func, uint16_t line, uint32_t hash)
 #if CFG_MLA_VERBOSE
         char buf[80] = {0};
 #if CFG_MLA_FUNCTION
-        sprintf(buf, "%s:%u %s", file, line, func);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u %s", file, line, func);
 #else
-        sprintf(buf, "%s:%u", file, line);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u", file, line);
 #endif
         uint32_t hash = BKDRHash(buf);
         MlaFreeInfo_t *freeInfo = MlaFindFreeItem(&item->freeInfo, hash);
@@ -321,15 +308,15 @@ void *MlaMalloc(uint32_t size, char *file, char *func, uint16_t line)
         char buf[BUFFER_SIZE] = {0};
 #if CFG_MLA_VERBOSE
 #if CFG_MLA_FUNCTION
-        sprintf(buf, "%s:%u %s-%u", file, line, func, size);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u %s-%u", file, line, func, size);
 #else
-        sprintf(buf, "%s:%u-%u", file, line, size);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u-%u", file, line, size);
 #endif
 #else
 #if CFG_MLA_FUNCTION
-        sprintf(buf, "%s:%u %s", file, line, func);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u %s", file, line, func);
 #else
-        sprintf(buf, "%s:%u", file, line);
+        snprintf(buf, sizeof(buf) - 1, "%s:%u", file, line);
 #endif
 #endif
         uint32_t hash = BKDRHash(buf);
@@ -370,13 +357,13 @@ static int MlaCollectVerboseInfo(void **p_arg, mla_list_node_t **p_node)
     if (printInfo->verboseIndex == 1) {
         MLA_OUTPUT("%s", SplitLine);
         MLA_OUTPUT("|""%-16s%-32s%-*s""|", "Verbose:", "malloc", BUFFER_SIZE, "free");
-        snprintf(bufMalloc, sizeof(bufMalloc), "(%u)B - [%u]", printInfo->mla.size, printInfo->mla.mallocCount);
+        snprintf(bufMalloc, sizeof(bufMalloc) - 1, "(%u)B - [%u]", printInfo->mla.size, printInfo->mla.mallocCount);
     }
     char bufFree[BUFFER_SIZE] = {0};
 #if CFG_MLA_FUNCTION
-    snprintf(bufFree, sizeof(bufFree), "%s:%u %s - [%u]", recorder->file, recorder->line, recorder->func, recorder->freeCount);
+    snprintf(bufFree, sizeof(bufFree) - 1, "%s:%u %s - [%u]", recorder->file, recorder->line, recorder->func, recorder->freeCount);
 #else
-    snprintf(bufFree, sizeof(bufFree), "%s:%u - [%u]", recorder->file, recorder->line, recorder->freeCount);
+    snprintf(bufFree, sizeof(bufFree) - 1, "%s:%u - [%u]", recorder->file, recorder->line, recorder->freeCount);
 #endif
     MLA_OUTPUT("|""%3u.%-12s%-32s%-*s""|", printInfo->verboseIndex, "", bufMalloc, BUFFER_SIZE, bufFree);
     printInfo->verboseIndex++;
@@ -392,9 +379,9 @@ static int MlaCollectInfo(void **p_arg, mla_list_node_t **p_node)
     char buf[BUFFER_SIZE] = {0};
     Mla_t *recorder = (Mla_t *)(*p_node);
 #if CFG_MLA_FUNCTION
-    snprintf(buf, sizeof(buf), "%s:%u %s", recorder->file, recorder->line, recorder->func);
+    snprintf(buf, sizeof(buf) - 1 , "%s:%u %s", recorder->file, recorder->line, recorder->func);
 #else
-    snprintf(buf, sizeof(buf), "%s: %u", recorder->file, recorder->line);
+    snprintf(buf, sizeof(buf) - 1, "%s: %u", recorder->file, recorder->line);
 #endif
     if (*p_arg != NULL && *((bool *)(*p_arg))) {
         MLA_OUTPUT(" ""%-*s%-16x%-16u%-16u%d", BUFFER_SIZE - 10, buf, recorder->hash, recorder->mallocCount, recorder->freeCount,

@@ -66,6 +66,7 @@ function modify_mla_h {
 
 function generate_selfverify {
 cat >self_verify.c <<EOF
+#include "adapter.h"
 #include "sv_mla.h"
 
 #define TAG    "SV"
@@ -74,6 +75,7 @@ cat >self_verify.c <<EOF
 int main()
 {
     void *pMla[CHECK_NUM] = {NULL};
+    log_init();
     MlaInit();
     SV_MlaInit();
     LOGD("%s - %s : %u", __FILENAME__, __func__, __LINE__);
@@ -90,6 +92,7 @@ int main()
     SV_MlaOutput();
     LOGV("\r\n-- MlaOutput:\r\n");
     MlaOutput();
+    log_deinit();
 
     return 0;
 }
@@ -105,8 +108,8 @@ function generate_sv {
 }
 
 function generate_mla {
-cat >demo.c <<EOF
-#include "mla.h"
+cat >test.c <<EOF
+#include "adapter.h"
 
 #define TAG    "DEMO"
 
@@ -115,6 +118,7 @@ int main()
     void *pMla = NULL;
     uint8_t i = 1;
     uint16_t cnt = 0;
+    log_init();
     MlaInit();
     LOGD("%s - %s : %u", __FILENAME__, __func__, __LINE__);
     LOGI("%s : %u. Malloc address: 0x%08x", __func__, __LINE__, pMla = PORT_MALLOC(8));
@@ -150,6 +154,7 @@ int main()
     cnt = 0;
 
     MlaOutput();
+    log_deinit();
 
    return 0;
 }
@@ -157,39 +162,10 @@ EOF
 }
 
 function generate_log {
-cat >log.c <<EOF
-#include <stdio.h>
-#include <stdarg.h>
+cat >test.c <<EOF
 #include "adapter.h"
 
-#define TAG    "LOG"
-#define OUTPUT    output
-
-FILE *logFile = NULL;
-
-int initLogFile()
-{
-    logFile = fopen("Log.log", "w+");
-    if (logFile == NULL) {
-        printf("Failed to open log file.\n");
-        return -1;
-    }
-    return 0;
-}
-
-int output(const char *format, ...)
-{
-    va_list args;
-    va_start(args, format);
-
-    if (logFile != NULL) {
-        vfprintf(logFile, format, args);
-        fflush(logFile);
-    }
-
-    va_end(args);
-    return 0;
-}
+#define TAG    "LOG-TEST"
 
 int test1()
 {
@@ -205,9 +181,13 @@ int test()
 
 int main()
 {
-    initLogFile();
+    log_init();
     LOGD("=== %s, %d", __func__, test());
-    fclose(logFile);
+    for (int i = 0; i < 100; i++) {
+        usleep(50000);
+        LOGI("this is test of throttling");
+    }
+    log_deinit();
     return 0;
 }
 EOF
@@ -216,14 +196,12 @@ EOF
 function clean {
     [ -f a.out ] && rm a.out
     [ -f build.log ] && rm build.log
-    [ -f exec.log ] && rm exec.log
     [ -f Log.log ] && rm Log.log
     [ -f sv_mla.c ] && rm sv_mla.c
     [ -f sv_mla.h ] && rm sv_mla.h
     [ -f self_verify.c ] && rm self_verify.c
-    [ -f demo.c ] && rm demo.c
-    [ -f log.c ] && rm log.c
-    sed -i '/char buffer\[256\];/d' adapter.h
+    [ -f test.c ] && rm test.c
+    sed -i '/char buffer\[LOG_BUFFER_SIZE\];/d' adapter.h
     sed -i '/sprintf(buffer, __VA_ARGS__);/d' adapter.h
     sed -i '/OUTPUT(\"%s, >>>, %s\\n", \#level, \#__VA_ARGS__);/d' adapter.h
     sed -i '/OUTPUT(\"###\\n\");/d' adapter.h
@@ -251,7 +229,7 @@ function generate {
                     awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"%s, >>>, %s\\n\", #level, #__VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                     awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"###\\n\"); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 }
-                awk 'index($0, "level == V ? : OUTPUT(#level") {print "char buffer[256]; \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
+                awk 'index($0, "level == V ? : OUTPUT(#level") {print "char buffer[LOG_BUFFER_SIZE]; \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 awk 'index($0, "level == V ? : OUTPUT(#level") {print "sprintf(buffer, __VA_ARGS__); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
                 [[ $2 = '--debug' ]] && {
                     awk 'index($0, "level == V ? : OUTPUT(#level") {print "OUTPUT(\"@ %s\\n\", buffer); \\"}1' adapter.h > adapter_tmp.h && mv adapter_tmp.h adapter.h
@@ -259,7 +237,7 @@ function generate {
                 }
                 space_num=`awk 'index($0, "level == V ? : OUTPUT(#level") {match($0, /^ */); print RLENGTH}' adapter.h`
                 spaces=$(printf '%*s' $space_num ' ')
-                sed -i "s/char buffer\[256\];/${spaces}&/" adapter.h
+                sed -i "s/char buffer\[LOG_BUFFER_SIZE\];/${spaces}&/" adapter.h
                 sed -i "s/sprintf(buffer, __VA_ARGS__);/${spaces}&/" adapter.h
                 sed -i "s/OUTPUT(\"%s, >>>/${spaces}&/" adapter.h
                 sed -i "s/OUTPUT(\"###/${spaces}&/" adapter.h
@@ -278,14 +256,14 @@ function process {
             generate ${user_arg[1]} ${user_arg[2]}
             ;;
         make)
-            [[ ! -f self_verify.c && ! -f demo.c && ! -f log.c ]] && echo "!!Run the command './do.sh generate'" && exit -1
+            [[ ! -f self_verify.c && ! -f test.c ]] && echo "!!Run the command './do.sh generate'" && exit -1
             gcc *.c
             gcc *.c 2>&1 |grep -e error: -e warning: >build.log
             grep -q error: build.log && echo -e "\nBuild Error!" && grep -e error: build.log
             ;;
         exec)
             [ ! -f a.out ] && echo "!!Run the command './do.sh make'" && exit -1
-            ./a.out |tee exec.log
+            ./a.out
             ;;
         clean)
             clean
