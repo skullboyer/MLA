@@ -48,10 +48,12 @@ enum {LOG_LEVEL, V, D, I, W, E, NO, VO, DO, IO, WO, EO};
         } else if (level < FILTER) { \
             break; \
         } \
+        char tag[] = TAG; \
+        if (log_control(tag)) break; \
         bool jump = false; \
         level == V ? : LOG_HZ == 0 ? : (jump = log_throttling(__FILENAME__, __LINE__, LOG_HZ)); \
         if (jump) break; \
-        level == V ? : OUTPUT(#level">%s " "{%.8s} " "<%s: %u> ", get_current_time(NULL), TAG, __FILENAME__, __LINE__); \
+        level == V ? : OUTPUT(#level">%s " "{%.8s} " "<%s: %u> ", get_current_time(NULL), tag, __FILENAME__, __LINE__); \
         OUTPUT(__VA_ARGS__); \
         level == V ? : OUTPUT("\r\n"); \
     } while(0)
@@ -77,3 +79,4 @@ int log_deinit(void);
 int log_out(const char *format, ...);
 char *get_current_time(uint16_t *minute_second);
 bool log_throttling(char *file, uint16_t line, uint8_t log_hz);
+bool log_control(char *tag);

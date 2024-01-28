@@ -13,7 +13,7 @@
 #include "adapter.h"
 
 #define TAG    "LOG"
-#define CFG_LOG_BACKEND_TERMINAL    1
+#define CFG_LOG_BACKEND_TERMINAL    0
 #define CFG_LOG_BACKEND_FILE    1
 #define CFG_LOG_BACKEND_FLASH    0
 
@@ -35,12 +35,25 @@ uint32_t BKDRHash(char *str)
  */
 char *get_current_time(uint16_t *minute_second)
 {
-    static char currentTime[20];
+    static char currentTime[20] = {0};
+    static uint8_t minute_history = 0;
+    if (strlen(currentTime) > 10) {
+        minute_history = (currentTime[9] - '0') * 10 + (currentTime[10] - '0');
+    }
     struct timeval now;
     gettimeofday(&now, NULL);
     struct tm* date = localtime(&now);
-    strftime(currentTime, sizeof(currentTime), "%m/%d %H:%M:%S", date);
-    snprintf(currentTime + 14, 5, ".%03ld", now.tv_usec / 1000);
+    memset(currentTime, 0, sizeof(currentTime));
+    strftime(currentTime, sizeof(currentTime), "%M", date);
+    uint8_t minute = (currentTime[0] - '0') * 10 + (currentTime[1] - '0');
+    printf("%u, %u\n", minute_history, minute);
+    if (minute > minute_history) {
+        strftime(currentTime, sizeof(currentTime), "%m/%d %H:%M:%S", date);
+        snprintf(currentTime + 14, 5, ".%03ld", now.tv_usec / 1000);
+    } else {
+        strftime(currentTime, sizeof(currentTime), "%S", date);
+        snprintf(currentTime + 2, 5, ".%03ld", now.tv_usec / 1000);
+    }
     if (minute_second != NULL) {
         *minute_second = now.tv_sec*10 + now.tv_usec / 100000;
     }
@@ -69,6 +82,7 @@ bool log_throttling(char *file, uint16_t line, uint8_t log_hz)
     static log_throttling_info log_data[LOG_THROTTLING_BUF_SIZE] = {0};
 
     char buf[64] = {0};
+    CHECK(file != NULL, "log throttling arg is null", false);
     snprintf(buf, sizeof(buf) - 1, "%s:%u", file, line);
     uint32_t hash = BKDRHash(buf);
 
@@ -110,6 +124,29 @@ bool log_throttling(char *file, uint16_t line, uint8_t log_hz)
     return false;
 }
 
+/**
+ * @brief  control log output with tags
+ */
+bool log_control(char *tag)
+{
+    static bool ret = false;
+    CHECK(tag != NULL, "log control arg is null", false);
+
+    switch (tag[0]) {
+        // exclude this tag
+        case '!':
+            return true;
+        // allow this tag
+        case '#':
+            ret = true;
+            strcpy(tag, tag+1);
+            return false;
+        default: break;
+    }
+
+    return ret;
+}
+
 #if CFG_LOG_BACKEND_FILE
 FILE *logFile = NULL;
 
@@ -123,7 +160,7 @@ static int init_log_file(void)
     return 0;
 }
 
-int output_file(FILE *file, char *buf, uint16_t len)
+static int output_file(FILE *file, char *buf, uint16_t len)
 {
     if (file != NULL) {
         fwrite(buf, len, 1, file);
@@ -135,7 +172,7 @@ int output_file(FILE *file, char *buf, uint16_t len)
 #endif
 
 #if CFG_LOG_BACKEND_TERMINAL
-int output_terminal(char *buf)
+static int output_terminal(char *buf)
 {
     printf("%s", buf);
     return 0;
@@ -151,7 +188,7 @@ struct {
     bool ferrule;
 } log_handle;
 
-int init_log_flash(void)
+static int init_log_flash(void)
 {
     log_handle.address = FLASH_ADDRESS;
     log_handle.length = FLASH_RANGE;
@@ -161,7 +198,7 @@ int init_log_flash(void)
     return 0;
 }
 
-int output_flash(char *buf, uint16_t len)
+static int output_flash(char *buf, uint16_t len)
 {
     if (log_handle.write + len > FLASH_ADDRESS + FLASH_RANGE) {
         flash_write(log_handle.write, buf, FLASH_ADDRESS + FLASH_RANGE - log_handle.write);
