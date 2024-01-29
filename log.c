@@ -14,8 +14,13 @@
 
 #define TAG    "LOG"
 #define CFG_LOG_BACKEND_TERMINAL    0
-#define CFG_LOG_BACKEND_FILE    1
-#define CFG_LOG_BACKEND_FLASH    0
+#define CFG_LOG_BACKEND_FILE        1
+#define CFG_LOG_BACKEND_FLASH       0
+#define CFG_THROTTLING_MODE         THROTTLING_MODE_COUNT
+#define THROTTLING_MODE_COUNT    1  // To limit viewership of log output
+#define THROTTLING_MODE_TIME     2  // To limit viewership of log time interval
+
+#define LOG_THROTTLING_RECORDER_SIZE    (10)
 
 uint32_t BKDRHash(char *str)
 {
@@ -33,29 +38,48 @@ uint32_t BKDRHash(char *str)
 /**
  * @brief  log timestamp
  */
-char *get_current_time(uint16_t *minute_second)
+char *get_current_time(uint32_t *today_ms)
 {
     static char currentTime[20] = {0};
+    // Used to obtain the complete timestamp including the date
+    static bool time_all = true;
+    // Because there are multiple calls to the time interface, in order to ensure the uniqueness of the timestamp
+    static uint16_t time_us = 0;
+
     static uint8_t minute_history = 0;
     if (strlen(currentTime) > 10) {
         minute_history = (currentTime[9] - '0') * 10 + (currentTime[10] - '0');
     }
+
     struct timeval now;
     gettimeofday(&now, NULL);
     struct tm* date = localtime(&now);
     memset(currentTime, 0, sizeof(currentTime));
     strftime(currentTime, sizeof(currentTime), "%M", date);
     uint8_t minute = (currentTime[0] - '0') * 10 + (currentTime[1] - '0');
-    printf("%u, %u\n", minute_history, minute);
-    if (minute > minute_history) {
+
+    if (minute != minute_history) {
+        time_all = true;
+    }
+    if (time_all && today_ms == NULL || today_ms != NULL) {
+        if (today_ms == NULL) {
+            time_all = false;
+        } else {
+            time_us = now.tv_usec/1000;
+        }
         strftime(currentTime, sizeof(currentTime), "%m/%d %H:%M:%S", date);
         snprintf(currentTime + 14, 5, ".%03ld", now.tv_usec / 1000);
     } else {
+        if (time_us == 0) {
+            time_us = now.tv_usec/1000;
+        }
         strftime(currentTime, sizeof(currentTime), "%S", date);
-        snprintf(currentTime + 2, 5, ".%03ld", now.tv_usec / 1000);
+        snprintf(currentTime + 2, 5, ".%03ld", time_us);
     }
-    if (minute_second != NULL) {
-        *minute_second = now.tv_sec*10 + now.tv_usec / 100000;
+
+    if (today_ms != NULL) {
+        // Get the number of seconds for the day
+        *today_ms = now.tv_sec%86400*1000 + now.tv_usec/1000;
     }
 
     return currentTime;
@@ -68,7 +92,9 @@ bool log_throttling(char *file, uint16_t line, uint8_t log_hz)
 {
     typedef struct {
         uint32_t hash;
-        uint16_t time_ms;  // s + 0.1s
+        uint32_t today_ms;
+        char file[48];
+        uint16_t line;
         uint16_t count;
     } log_throttling_info;
 
@@ -78,47 +104,87 @@ bool log_throttling(char *file, uint16_t line, uint8_t log_hz)
         bool empty;
     } log_throttling_handle = {0, 0, true};
 
-    #define LOG_THROTTLING_BUF_SIZE    (20)
-    static log_throttling_info log_data[LOG_THROTTLING_BUF_SIZE] = {0};
+    static log_throttling_info log_data[LOG_THROTTLING_RECORDER_SIZE] = {0};
 
     char buf[64] = {0};
     CHECK(file != NULL, "log throttling arg is null", false);
     snprintf(buf, sizeof(buf) - 1, "%s:%u", file, line);
     uint32_t hash = BKDRHash(buf);
 
-    uint16_t time_ms;
+    uint32_t today_ms;
     char time_stamp[20];
-    memcpy(time_stamp, get_current_time(&time_ms), sizeof(time_stamp));
+    memcpy(time_stamp, get_current_time(&today_ms), sizeof(time_stamp));
 
     if (log_throttling_handle.empty) {
         log_data[0].hash = hash;
-        log_data[0].time_ms = time_ms;
+        log_data[0].today_ms = today_ms;
+        log_data[0].line = line;
+        memcpy(log_data[0].file, file, sizeof(log_data[0].file));
         log_throttling_handle.empty = false;
         log_throttling_handle.write = 1;
         return false;
     }
 
-    for (uint8_t i = 0; i < LOG_THROTTLING_BUF_SIZE; i++) {
+    // Clearing old data in logger with limited viewership of logs
+    for (uint8_t i = 0; i < LOG_THROTTLING_RECORDER_SIZE; i++) {
+        uint8_t index = i + log_throttling_handle.write;
+        if (index >= LOG_THROTTLING_RECORDER_SIZE) {
+            index -= LOG_THROTTLING_RECORDER_SIZE;
+        }
+        if (log_data[index].today_ms == 0) {
+            continue;
+        }
+#if CFG_THROTTLING_MODE == THROTTLING_MODE_TIME
+        if (today_ms - log_data[index].today_ms >= 1000/log_hz) {
+            if (log_data[index].count > 0) {
+                OUTPUT("W>%s " "{%.8s} " "<%s: %u> (%02u.%03u)""discard times: %u\r\n", time_stamp, TAG,
+                    log_data[index].file, log_data[index].line, log_data[index].today_ms/1000%60,
+                    log_data[index].today_ms%1000, log_data[index].count);
+            }
+            memset(&log_data[index], 0, sizeof(log_throttling_info));
+        }
+#elif CFG_THROTTLING_MODE == THROTTLING_MODE_COUNT
+        if (today_ms - log_data[index].today_ms > 1000) {
+            if (log_data[index].count - log_hz > 0) {
+                OUTPUT("W>%s " "{%.8s} " "<%s: %u> (%02u.%03u)""discard times: %u\r\n", time_stamp, TAG,
+                    log_data[index].file, log_data[index].line, log_data[index].today_ms/1000%60,
+                    log_data[index].today_ms%1000, log_data[index].count - log_hz);
+            }
+            memset(&log_data[index], 0, sizeof(log_throttling_info));
+        }
+#endif
+    }
+
+    // Limited viewership of high frequency logs
+    for (uint8_t i = 0; i < LOG_THROTTLING_RECORDER_SIZE; i++) {
         if (hash == log_data[i].hash) {
-            if (time_ms - log_data[i].time_ms <= 10/log_hz) {
+#if CFG_THROTTLING_MODE == THROTTLING_MODE_TIME
+            if (today_ms - log_data[i].today_ms < 1000/log_hz) {
                 log_data[i].count += 1;
                 log_throttling_handle.read = i;
                 return true;
-            } else {
-                if (log_data[i].count > 0) {
-                    OUTPUT("W>%s " "{%.8s} " "<%s: %u> ""discard times: %u\r\n", time_stamp, TAG, file, line, log_data[i].count);
-                }
-                memset(&log_data[i], 0, sizeof(log_throttling_info));
             }
+#elif CFG_THROTTLING_MODE == THROTTLING_MODE_COUNT
+            if (today_ms - log_data[i].today_ms < 1000) {
+                log_data[i].count += 1;
+                if (log_data[i].count < log_hz) {
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+#endif
         }
     }
 
     uint8_t index = log_throttling_handle.write;
-    if (index >= LOG_THROTTLING_BUF_SIZE) {
+    if (index >= LOG_THROTTLING_RECORDER_SIZE) {
         index = 0;
     }
     log_data[index].hash = hash;
-    log_data[index].time_ms = time_ms;
+    log_data[index].today_ms = today_ms;
+    log_data[index].line = line;
+    memcpy(log_data[index].file, file, sizeof(log_data[index].file));
     log_throttling_handle.write = index + 1;
 
     return false;

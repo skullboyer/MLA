@@ -183,8 +183,8 @@ int main()
 {
     log_init();
     LOGD("=== %s, %d", __func__, test());
-    for (int i = 0; i < 100; i++) {
-        usleep(50000);
+    for (int i = 0; i < 1500; i++) {
+        usleep(80000);
         LOGI("this is test of throttling");
     }
     log_deinit();

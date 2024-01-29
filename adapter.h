@@ -77,6 +77,6 @@ uint32_t BKDRHash(char *str);
 int log_init(void);
 int log_deinit(void);
 int log_out(const char *format, ...);
-char *get_current_time(uint16_t *minute_second);
+char *get_current_time(uint32_t *today_ms);
 bool log_throttling(char *file, uint16_t line, uint8_t log_hz);
 bool log_control(char *tag);
